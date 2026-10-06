@@ -122,6 +122,7 @@
  * ====================================================================================
  */
 
+
 macro "Universal Batch Stitching and Mosaic" {
     macroVersion = "3.1";
     tStart = getTime();
