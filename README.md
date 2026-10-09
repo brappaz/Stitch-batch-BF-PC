@@ -2,6 +2,8 @@
 
 Fiji macro that stitches every multi-field well of an IN Cell Analyzer plate, for brightfield and phase contrast together, and builds a labelled plate mosaic per channel in a single run. Wells that can't be stitched are tiled side by side instead of coming out broken.
 
+The repository also contains [`Crop_BF-PC_to_DHM.ijm`](#crop-bf-and-pc-to-the-dhm-field-of-view), which crops the brightfield and phase contrast images to the field of view of a DHM image of the same well.
+
 ![One well: four raw fields fused into one stitched image, for both channels](docs/images/well_raw_to_stitched.jpg)
 
 ## Features
@@ -105,6 +107,42 @@ The Log summarises the outcome, the measured overlap and the timing.
 - **2.0:** registration check with side-by-side fallback, and the CSV report.
 
 The full changelog is at the top of the macro.
+
+## Crop BF and PC to the DHM field of view
+
+[`Crop_BF-PC_to_DHM.ijm`](Crop_BF-PC_to_DHM.ijm) finds, for every well, the area imaged by the DHM (digital holographic microscope) in the IN Cell images of the same well. It then saves brightfield and phase contrast crops covering exactly that area, resampled onto the DHM pixel grid so they overlay the DHM image pixel to pixel.
+
+![DHM image of one well, the brightfield and phase contrast crops, and the overlay](docs/images/crop_to_dhm.jpg)
+
+**Input** (only the first two folders must be chosen; the others are found in the BF + PC folder):
+
+| Folder | Content |
+|---|---|
+| DHM stitched images | One image per well, `<Well>_….tif` (e.g. `B03_00001_00001.tif`); pixels equal to 0 are empty areas |
+| BF + PC single fields | Raw IN Cell fields, including the field acquired at the DHM position (default fld 5) |
+| `Processed_BG_Corrected_Brightfield/` | Background-corrected BF fields (optional: the macro can correct the raw BF itself) |
+| `Merged_Images_Brightfield/`, `Merged_Images_Phase Contrast/` | Fields 1–4 stitched by the macro above |
+
+**Usage:** install it like the stitching macro (or use *Plugins › Macros › Run…*), choose the DHM folder and the BF + PC folder, and keep the defaults. Options: registration channel, DHM pixel size and rotation (`auto` or fixed), output on the DHM pixel grid or as a plain crop at BF/PC resolution, and the BF source (corrected folder, raw corrected by the macro, or raw).
+
+**How it works**
+
+1. **Registration.** The DHM image is scaled to the BF/PC pixel size, rotated and band-pass filtered. It is then located in the phase contrast image by masked normalised cross-correlation (FFT, 4× down-sampled). BF and PC share the same position.
+2. **Field choice.** If the whole DHM area lies inside fld 5, both channels are cropped from fld 5. Otherwise they are cropped from the stitched fld 1–4 images.
+3. **Scale and rotation** are measured on the first wells (`auto`), because the pixel size stored in DHM files can be wrong (0.300 µm in the file, 0.275 µm measured at 20x).
+4. **Plate model.** The DHM position varies smoothly across the plate. Wells without a clear match are searched again within ±50 µm of the position predicted from the other wells, and the predicted position is used if nothing matches there.
+
+**Outputs** (`Cropped_to_DHM/` in the BF + PC folder):
+
+```text
+Brightfield/<DHM name>_BF.tif      Phase Contrast/<DHM name>_PC.tif      16-bit, same size as the DHM image
+QC/<DHM name>_QC.jpg               DHM (magenta) over the PC crop (green)
+Crop_report.csv                    per well: source image, how the position was found, match score, position
+```
+
+The position is reproducible to about 5 px (1.5 µm). Cells move between the DHM and IN Cell acquisitions (4.5 h on the test plate), so single cells don't overlay exactly. Wells positioned from the plate model are marked in the report; check their QC overlays.
+
+**Tested** on a 384-well plate (280 wells, 20x): all wells cropped, 85 from fld 5 and 195 from the stitched images, in 25 min.
 
 ## Citation
 
