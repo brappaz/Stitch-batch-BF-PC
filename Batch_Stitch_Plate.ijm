@@ -1,7 +1,7 @@
 /*
  * Batch_Stitch_Plate.ijm
  *
- * Batch version of Stitch_Registered_Tiles.ijm: stitches every well of a plate
+ * Batch version of Stitch_single_registered_Tiles.ijm: stitches every well of a plate
  * acquisition and names the results after their well position.
  *
  * Expected layout:
