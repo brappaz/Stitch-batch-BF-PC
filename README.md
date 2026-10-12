@@ -7,6 +7,7 @@ The repository also contains macros for DHM (digital holographic microscope) pla
 - [`Batch_Stitch_Plate.ijm`](#stitch-the-dhm-tiles-of-a-plate) stitches the DHM tiles of every well.
 - [`Mosaic_Stitched_Wells.ijm`](#plate-mosaic-of-the-stitched-dhm-wells) builds a plate mosaic of the stitched wells.
 - [`Crop_BF-PC_to_DHM.ijm`](#crop-bf-and-pc-to-the-dhm-field-of-view) crops the brightfield and phase contrast images to the DHM field of view of each well.
+- [`Mosaic_BF_PC.ijm`](#plate-mosaics-of-the-cropped-bf-and-pc-images) builds plate mosaics of these crops that overlay the DHM mosaic.
 
 ![One well: four raw fields fused into one stitched image, for both channels](docs/images/well_raw_to_stitched.jpg)
 
@@ -160,20 +161,26 @@ On the 20x test plate (280 wells), about 85 % of the wells were refined and the 
 
 ![DHM plate mosaic, with the same display range for all wells](docs/images/overview_mosaic.jpg)
 
-**Usage:** choose the `stitched_tiles` folder. Any folder of `<Well>.tif` or `<Well>_….tif` images also works. The mosaic is saved as `Mosaic_DHM.tif` in the parent folder.
+**Usage:** choose the `stitched_tiles` folder. Any folder of `<Well>.tif` or `<Well>_….tif` images also works. The mosaic is saved as `Mosaic_DHM.tif` in the parent folder, or as `Mosaic_BF.tif` / `Mosaic_PC.tif` for a folder called `Brightfield` / `Phase Contrast`. The name can be changed in the dialog.
 
 - Each well is cropped to a centred square of the median image size and downscaled (default 0.33).
 - **Same range for all wells** (default):
-  - The mosaic keeps the original 32-bit values with one display range, so wells can be compared.
+  - All wells share one display range, so they can be compared.
   - The range is either `auto` or typed in. `auto` is the median of the wells' own ranges, each with 0.7 % of the pixels saturated and empty pixels ignored.
   - You can choose the LUT and add a colour bar (off by default).
 - **Per well:** each well is stretched on its own, as in v1.
 - **Log:** lists the wells whose own range is more than 1.5× wider or narrower than the plate's. This flags debris, unwrapping errors or strong drug effects.
+- **16-bit output:** a 32-bit mosaic (DHM) is saved as 16-bit, half the size, and looks the same on screen (at most 1 grey level in 256 differs).
+  - The values are mapped linearly onto 0–65535, and an ImageJ calibration (*Analyze › Calibrate*) maps them back. The status bar, *Measure* and *Brightness/Contrast* therefore show the original DHM values, to about 0.001.
+  - Values more than 7.5 display ranges beyond the display range are clipped; they were already black or white on screen.
+  - Set `save16bit = false` at the top of the macro to keep 32-bit.
 
 ![Per-well contrast (v1) makes B20 look dark; one range for all wells (v2) shows it like its neighbours](docs/images/overview_mosaic_range.jpg)
 
 **Versions**
 
+- **2.3:** 32-bit mosaics saved as 16-bit with the same look, calibrated back to the original values.
+- **2.2:** output name can be set, and is `Mosaic_BF.tif` / `Mosaic_PC.tif` for BF and PC folders. Fixed: 16-bit images stopped with "Array expected".
 - **2.1:** output named `Mosaic_DHM.tif`, colour bar off by default.
 - **2.0:** one display range for all wells.
 - **1.0:** each well stretched on its own.
@@ -213,6 +220,16 @@ Crop_report.csv                    per well: source image, how the position was 
 The position is reproducible to about 5 px (1.5 µm). Cells move between the DHM and IN Cell acquisitions (4.5 h on the test plate), so single cells don't overlay exactly. Wells positioned from the plate model are marked in the report; check their QC overlays.
 
 **Tested** on a 384-well plate (280 wells, 20x): all wells cropped, 85 from fld 5 and 195 from the stitched images, in 25 min.
+
+## Plate mosaics of the cropped BF and PC images
+
+[`Mosaic_BF_PC.ijm`](Mosaic_BF_PC.ijm) builds `Mosaic_BF.tif` and `Mosaic_PC.tif` from the crops, laid out like `Mosaic_DHM.tif`: same grid, tile size and labels. Each crop has the size of its DHM image, so the three mosaics overlay pixel for pixel.
+
+![The same two wells in the DHM, brightfield and phase contrast mosaics](docs/images/overview_mosaic_bf_pc.jpg)
+
+**Usage:** choose the folder that holds `Brightfield/` and `Phase Contrast/` (e.g. `Cropped_to_DHM/`). The mosaics are saved there, 16-bit, about 160 MB each for 280 wells, in about 1 min. The work is done by `Mosaic_Stitched_Wells.ijm` (v2.2 or later), which must be in `Fiji.app/macros/`.
+
+**Contrast** is set per well by default, unlike the DHM mosaic, because BF/PC values can't be compared between wells. The stitching macro stretched the fld 1–4 images to the full 16-bit range, while the fld 5 crops keep raw camera values. With one range for all wells, the fld 5 wells look flat and grey. *Same range* is still available in the dialog.
 
 ## Citation
 

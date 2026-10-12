@@ -1,5 +1,5 @@
 /*
- * Mosaic_Stitched_Wells.ijm   v2.1
+ * Mosaic_Stitched_Wells.ijm   v2.3
  *
  * Builds a plate-shaped mosaic from the stitched well images produced by
  * Batch_Stitch_Plate.ijm (DHM) or by the BF/PC stitching macro. File names are
@@ -8,6 +8,16 @@
  * just the well id (B03).
  *
  * Changes
+ *   v2.3  32-bit mosaics (DHM) are saved as 16-bit, half the size, and look the
+ *         same: the values are mapped linearly onto 0-65535, the display range
+ *         follows, and a calibration keeps the original values readable.
+ *   v2.2  Output file name can be set (dialog, or 5th argument), and the contrast
+ *         mode can be given as 6th argument ("same" or "per well"). A folder called
+ *         Brightfield or Phase Contrast gives Mosaic_BF.tif or Mosaic_PC.tif, so
+ *         those mosaics no longer overwrite Mosaic_DHM.tif. Mosaic_BF_PC.ijm uses
+ *         this to build both in one go. The Log is only cleared when run by hand.
+ *         Fixed: 16-bit images (e.g. BF, PC) stopped with "Array expected" when
+ *         their range was measured.
  *   v2.1  Output named Mosaic_DHM.tif; colour bar off by default.
  *   v2.0  One display range (colour map) for all wells, so wells can be compared.
  *         The mosaic keeps the original pixel values (e.g. DHM values in 32-bit)
@@ -29,7 +39,12 @@
  *   - the squares are downsampled by the scale factor you enter;
  *   - the well id is burned into the top-left corner of each tile with a
  *     font 1/8 of the tile size;
- *   - the mosaic is written to the PARENT of the input folder as Mosaic_DHM.tif.
+ *   - a 32-bit mosaic (DHM) is saved as 16-bit with the same look on screen;
+ *     its calibration (Analyze > Calibrate) converts back to the 32-bit values,
+ *     so the status bar, Measure and B&C show the original values;
+ *   - the mosaic is written to the PARENT of the input folder as Mosaic_DHM.tif,
+ *     or Mosaic_BF.tif / Mosaic_PC.tif if the input folder is called Brightfield /
+ *     Phase Contrast (the name can be changed in the dialog).
  *
  * Wells that are missing from the folder are left black.
  *
@@ -37,13 +52,17 @@
  * Or open it in the Script Editor and press Run.
  *
  * Non-interactive use: pass the folder as the macro argument, optionally with
- * the scale and the display range after "|", e.g.
+ * the scale, the display range, the output file name and the contrast mode
+ * ("same" or "per well") after "|", e.g.
  *     runMacro("Mosaic_Stitched_Wells.ijm", "D:/data/Registered/stitched_tiles|0.25");
  *     runMacro("Mosaic_Stitched_Wells.ijm", "D:/data/Registered/stitched_tiles|0.25|-0.1|4");
+ *     runMacro("Mosaic_Stitched_Wells.ijm", "D:/data/stitched_tiles/Brightfield|0.33|auto|auto|Mosaic_BF.tif|per well");
  */
 
 // ---------------------------------------------------------------- settings --
-mosaicName    = "Mosaic_DHM.tif"; // written into the parent of the input folder
+mosaicName    = "Mosaic_DHM.tif"; // written into the parent of the input folder,
+folderNames   = newArray("Brightfield",   "Phase Contrast"); // except for input
+folderMosaics = newArray("Mosaic_BF.tif", "Mosaic_PC.tif");  // folders with these names
 scale         = 0.33;           // default shown in the dialog (1 = full size)
 labelFraction = 0.125;          // label font size as a fraction of the tile size (1/8)
 contrastModes = newArray("Same range for all wells", "Per well (each well stretched on its own)");
@@ -57,15 +76,18 @@ lutName       = "Grays";
 colourBar     = false;          // colour bar right of the plate (same range only)
 outlierFactor = 1.5;            // wells whose own range is this much wider (or
                                 // narrower) than the plate range are listed
+save16bit     = true;           // save 32-bit mosaics as 16-bit (same look, half
+                                // the size); false keeps them 32-bit
 fastMeasure   = true;           // read sizes from the TIFF headers only.
                                 // Set to false if "TIFF Virtual Stack..." ever
                                 // misbehaves - it then opens each file normally
                                 // (correct, just slower).
 // -----------------------------------------------------------------------------
 
-// Input: either a macro argument ("path", "path|scale" or "path|scale|min|max"),
-// or asked for.
+// Input: either a macro argument ("path", "path|scale", "path|scale|min|max",
+// "path|scale|min|max|name" or "path|scale|min|max|name|contrast"), or asked for.
 arg = getArgument();
+outName = "";
 if (lengthOf(arg) > 0) {
     parts = split(arg, "|");
     inputDir = parts[0];
@@ -78,6 +100,14 @@ if (lengthOf(arg) > 0) {
         rangeMin = parts[2];
         rangeMax = parts[3];
     }
+    if (parts.length > 4)
+        outName = parts[4];
+    if (parts.length > 5) {
+        if (startsWith(toLowerCase(String.trim(parts[5])), "per"))
+            contrastMode = contrastModes[1];
+        else
+            contrastMode = contrastModes[0];
+    }
     interactive = false;
 } else {
     inputDir = getDirectory("Choose the folder with the stitched well images");
@@ -87,8 +117,20 @@ if (lengthOf(inputDir) == 0)
     exit("No folder selected.");
 inputDir = normalizeDir(inputDir);
 
-print("\\Clear");
-print("Mosaic Stitched Wells v2.1");
+// Output name: given, or from the input folder's name (BF, PC), or the default.
+if (lengthOf(outName) == 0) {
+    outName = mosaicName;
+    folder  = substring(inputDir, lengthOf(parentOf(inputDir)), lengthOf(inputDir) - 1);
+    for (i = 0; i < folderNames.length; i++) {
+        if (toLowerCase(folder) == toLowerCase(folderNames[i]))
+            outName = folderMosaics[i];
+    }
+}
+
+// When called from another macro (e.g. Mosaic_BF_PC.ijm), keep what is in the Log.
+if (interactive)
+    print("\\Clear");
+print("Mosaic Stitched Wells v2.3");
 print("Input folder: " + inputDir);
 
 // ------------------------------------------------ collect the well images --
@@ -177,12 +219,13 @@ print("Median size: " + medW + " x " + medH + " px  ->  centred square crop of "
 // --------------------------------------------------------------- the dialog --
 if (interactive) {
     luts = getList("LUTs");
-    Dialog.create("Well Mosaic v2.1");
+    Dialog.create("Well Mosaic v2.3");
     Dialog.addMessage("Well images: " + n + "   (grid " + nRows + " x " + nCols + ")"
         + "\nMedian size: " + medW + " x " + medH + " px"
         + "\nCentred square crop: " + side + " x " + side + " px"
         + "\nAt scale 1 the mosaic would be " + (nCols * side) + " x " + (nRows * side) + " px");
     Dialog.addNumber("Downsampling scale", scale, 3, 8, "(1 = full size, 0.25 = quarter)");
+    Dialog.addString("Output file", outName, 20);
     if (bd != 24) {
         Dialog.addChoice("Contrast", contrastModes, contrastMode);
         Dialog.addString("Display range min", rangeMin, 8);
@@ -195,6 +238,7 @@ if (interactive) {
     }
     Dialog.show();
     scale = Dialog.getNumber();
+    outName = Dialog.getString();
     if (bd != 24) {
         contrastMode = Dialog.getChoice();
         rangeMin     = Dialog.getString();
@@ -205,6 +249,11 @@ if (interactive) {
 }
 if (isNaN(scale) || scale <= 0 || scale > 1)
     exit("Scale must be greater than 0 and at most 1 (got " + scale + ").");
+outName = String.trim(outName);
+if (lengthOf(outName) == 0)
+    outName = mosaicName;
+if (!endsWith(toLowerCase(outName), ".tif") && !endsWith(toLowerCase(outName), ".tiff"))
+    outName = outName + ".tif";
 sameRange = (contrastMode == contrastModes[0]) && (bd != 24);
 perWell   = (contrastMode == contrastModes[1]) && (bd != 24);
 fixedMin  = parseFloat(rangeMin);     // NaN for "auto"
@@ -220,8 +269,11 @@ mosaicH  = nRows * tileSize;
 fontSize = maxOf(8, round(tileSize * labelFraction));
 
 print("Scale: " + scale + "  ->  tiles of " + tileSize + " px");
-print("Mosaic: " + mosaicW + " x " + mosaicH + " px, " + bd + "-bit  (~"
-      + d2s(mosaicW * mosaicH * (bd / 8) / 1048576, 0) + " MB)");
+outBd = bd;
+if (bd == 32 && save16bit)
+    outBd = 16;
+print("Mosaic: " + mosaicW + " x " + mosaicH + " px, saved as " + outBd + "-bit  (~"
+      + d2s(mosaicW * mosaicH * (outBd / 8) / 1048576, 0) + " MB)");
 if (sameRange)
     print("Contrast: same range for all wells (min " + rangeMin + ", max " + rangeMax + ")");
 else if (perWell)
@@ -386,13 +438,47 @@ if (bd != 24) {
     run(lutName);
     setMinAndMax(lo, hi);           // drawing must not shift the display range
 }
+// 32-bit -> 16-bit with the same look. The values are mapped linearly onto
+// 0-65535 and the display range is mapped with them; a calibration maps back.
+// The mapped interval is the mosaic's min-max, limited to 7.5 display ranges
+// beyond each end, so the displayed range always gets at least 4096 grey
+// levels; values beyond the limits are clipped, but they were already
+// saturated on screen. Empty pixels (0) all get the same 16-bit level, which
+// calibrates back to 0.
+if (bd == 32 && save16bit) {
+    run("Select None");
+    getStatistics(dummy, dummy, vMin, vMax);
+    span = hi - lo;
+    a = maxOf(vMin, lo - 7.5 * span);
+    b = minOf(vMax, hi + 7.5 * span);
+    if (b <= a)
+        b = a + 1;
+    step = (b - a) / 65535;
+    if (a < 0 && b > 0) {
+        a = -round(-a / step) * step;   // 0 falls on a whole 16-bit level
+        b = a + 65535 * step;
+    }
+    run("Subtract...", "value=" + d2s(a, -9));
+    run("Divide...",   "value=" + d2s(step, -9));
+    run("Min...", "value=0");
+    run("Max...", "value=65535");
+    setMinAndMax(0, 65535);
+    run("16-bit");
+    setMinAndMax((lo - a) / step, (hi - a) / step);  // before calibrating: raw values
+    run("Calibrate...", "function=[Straight Line] unit=[32-bit value] text1=[0 65535] text2=["
+        + d2s(a, 9) + " " + d2s(b, 9) + "]");      // Calibrate does not read 1.2E3
+    note = "";
+    if (vMin < a || vMax > b)
+        note = " (" + d2s(vMin, 3) + " to " + d2s(vMax, 3) + " in the mosaic: the rest is clipped)";
+    print("16-bit: values " + d2s(a, 4) + " to " + d2s(b, 4) + " -> 0 to 65535" + note);
+}
 if (pxSize > 0 && pxUnit != "pixel" && pxUnit != "pixels")
     setVoxelSize(pxSize * side / tileSize, pxSize * side / tileSize, 1, pxUnit);
 
 parent = parentOf(inputDir);
 if (lengthOf(parent) == 0)
     parent = inputDir;
-outPath = parent + mosaicName;
+outPath = parent + outName;
 saveAs("Tiff", outPath);
 
 setBatchMode("exit and display");
@@ -435,16 +521,22 @@ function wellRange(sat) {
         acc += counts[j];
         j++;
     }
-    res[0] = values[j];
+    // 8 and 16-bit: the bin is the pixel value (getHistogram leaves "values"
+    // empty for a 65536-bin 16-bit histogram); 32-bit: bin start from "values".
+    if (b == 32)
+        res[0] = values[j];
+    else
+        res[0] = j;
     acc = 0;
     j = nb - 1;
     while (acc + counts[j] <= cut) {
         acc += counts[j];
         j--;
     }
-    res[1] = values[j];
     if (b == 32)
         res[1] = values[j] + (values[1] - values[0]);     // top of the bin
+    else
+        res[1] = j;
     return res;
 }
 
