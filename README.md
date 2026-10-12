@@ -2,7 +2,11 @@
 
 Fiji macro that stitches every multi-field well of an IN Cell Analyzer plate, for brightfield and phase contrast together, and builds a labelled plate mosaic per channel in a single run. Wells that can't be stitched are tiled side by side instead of coming out broken.
 
-The repository also contains [`Crop_BF-PC_to_DHM.ijm`](#crop-bf-and-pc-to-the-dhm-field-of-view), which crops the brightfield and phase contrast images to the field of view of a DHM image of the same well.
+The repository also contains macros for DHM (digital holographic microscope) plates:
+
+- [`Batch_Stitch_Plate.ijm`](#stitch-the-dhm-tiles-of-a-plate) stitches the DHM tiles of every well.
+- [`Mosaic_Stitched_Wells.ijm`](#plate-mosaic-of-the-stitched-dhm-wells) builds a plate mosaic of the stitched wells.
+- [`Crop_BF-PC_to_DHM.ijm`](#crop-bf-and-pc-to-the-dhm-field-of-view) crops the brightfield and phase contrast images to the DHM field of view of each well.
 
 ![One well: four raw fields fused into one stitched image, for both channels](docs/images/well_raw_to_stitched.jpg)
 
@@ -108,6 +112,72 @@ The Log summarises the outcome, the measured overlap and the timing.
 
 The full changelog is at the top of the macro.
 
+## Stitch the DHM tiles of a plate
+
+[`Batch_Stitch_Plate.ijm`](Batch_Stitch_Plate.ijm) stitches the 2 × 2 registered DHM tiles of every well and names each result after its well position, e.g. `B03_00001_00001.tif`.
+
+![Four registered DHM tiles of one well and the stitched well](docs/images/overview_dhm_stitch.jpg)
+
+**Input:** choose the `Registered` folder of a DHM acquisition.
+
+```text
+<acquisition>/
+├── experimental_info.json                 first well (InitialPosition), pixel size
+├── RRRRR_CCCCC/<tile>/…/timestamps.txt    raw tiles: stage positions
+└── Registered/                            ← choose this folder
+    └── RRRRR_CCCCC/                       one folder per well
+        ├── 00001_00001/Registered/00000_reg.tif
+        └── 00001_00002/…, 00002_00001/…, 00002_00002/…
+```
+
+**How it works**
+
+1. **Seed.** The tiles are rotated 90° right and placed at their recorded stage positions.
+2. **Scale.** The µm-to-pixel scale is measured by stitching a few wells spread across the plate. It isn't read from the json, which can name the wrong objective: 40x acquisitions report 20x and 0.3 µm/px.
+3. **Refinement.** *Grid/Collection stitching* refines the positions. If any tile moves more than *Max shift from seed* (60 px), the refinement is rejected and the tiles stay at their stage positions. Without this check, the plugin silently stacks an unmatched tile on top of tile 1.
+
+**Options:** stage seeding on/off, objective magnification (0 = auto), max shift from seed, and tile overlap (used only when there are no stage positions).
+
+**Outputs** (`Registered/stitched_tiles/`):
+
+```text
+<Row><Col>_<well folder>.tif   32-bit, original values (only the display contrast is set)
+qc_report.csv                  per well: seed source, step, overlap, max deviation, verdict
+```
+
+Each well gets one of four verdicts:
+
+- `REFINED`: the stitching was accepted.
+- `SEEDED`: the tiles were placed at their stage positions.
+- `UNCHECKED`: the stitched positions couldn't be read, so the stitching was kept without checking.
+- `FAILED`: no image was produced.
+
+On the 20x test plate (280 wells), about 85 % of the wells were refined and the rest were placed at their stage positions.
+
+## Plate mosaic of the stitched DHM wells
+
+[`Mosaic_Stitched_Wells.ijm`](Mosaic_Stitched_Wells.ijm) assembles the stitched wells into one plate image, with each well at its plate position and labelled.
+
+![DHM plate mosaic, with the same display range for all wells](docs/images/overview_mosaic.jpg)
+
+**Usage:** choose the `stitched_tiles` folder. Any folder of `<Well>.tif` or `<Well>_….tif` images also works. The mosaic is saved as `Mosaic_DHM.tif` in the parent folder.
+
+- Each well is cropped to a centred square of the median image size and downscaled (default 0.33).
+- **Same range for all wells** (default):
+  - The mosaic keeps the original 32-bit values with one display range, so wells can be compared.
+  - The range is either `auto` or typed in. `auto` is the median of the wells' own ranges, each with 0.7 % of the pixels saturated and empty pixels ignored.
+  - You can choose the LUT and add a colour bar (off by default).
+- **Per well:** each well is stretched on its own, as in v1.
+- **Log:** lists the wells whose own range is more than 1.5× wider or narrower than the plate's. This flags debris, unwrapping errors or strong drug effects.
+
+![Per-well contrast (v1) makes B20 look dark; one range for all wells (v2) shows it like its neighbours](docs/images/overview_mosaic_range.jpg)
+
+**Versions**
+
+- **2.1:** output named `Mosaic_DHM.tif`, colour bar off by default.
+- **2.0:** one display range for all wells.
+- **1.0:** each well stretched on its own.
+
 ## Crop BF and PC to the DHM field of view
 
 [`Crop_BF-PC_to_DHM.ijm`](Crop_BF-PC_to_DHM.ijm) finds, for every well, the area imaged by the DHM (digital holographic microscope) in the IN Cell images of the same well. It then saves brightfield and phase contrast crops covering exactly that area, resampled onto the DHM pixel grid so they overlay the DHM image pixel to pixel.
@@ -118,10 +188,10 @@ The full changelog is at the top of the macro.
 
 | Folder | Content |
 |---|---|
-| DHM stitched images | One image per well, `<Well>_….tif` (e.g. `B03_00001_00001.tif`); pixels equal to 0 are empty areas |
+| DHM stitched images | One image per well from `Batch_Stitch_Plate.ijm`, `<Well>_….tif` (e.g. `B03_00001_00001.tif`); pixels equal to 0 are empty areas |
 | BF + PC single fields | Raw IN Cell fields, including the field acquired at the DHM position (default fld 5) |
 | `Processed_BG_Corrected_Brightfield/` | Background-corrected BF fields (optional: the macro can correct the raw BF itself) |
-| `Merged_Images_Brightfield/`, `Merged_Images_Phase Contrast/` | Fields 1–4 stitched by the macro above |
+| `Merged_Images_Brightfield/`, `Merged_Images_Phase Contrast/` | Fields 1–4 stitched by the BF + PC stitching macro at the top of this page |
 
 **Usage:** install it like the stitching macro (or use *Plugins › Macros › Run…*), choose the DHM folder and the BF + PC folder, and keep the defaults. Options: registration channel, DHM pixel size and rotation (`auto` or fixed), output on the DHM pixel grid or as a plain crop at BF/PC resolution, and the BF source (corrected folder, raw corrected by the macro, or raw).
 
